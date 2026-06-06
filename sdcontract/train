@@ -1,0 +1,100 @@
+#!/usr/bin/env python
+import csv
+import datetime
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pandas as pd
+
+
+def _run(cmd, cwd, label):
+    proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    if proc.stdout:
+        sys.stderr.write(proc.stdout)
+    if proc.stderr:
+        sys.stderr.write(proc.stderr)
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "").strip()[-1500:]
+        raise RuntimeError(f"{label} exited {proc.returncode}: {tail}")
+
+
+def main():
+    req = json.load(sys.stdin)
+    real_stdout = sys.stdout
+    sys.stdout = sys.stderr
+    try:
+        train_csv = req["train_csv"]
+        out_dir = req["output_model_dir"]
+        label_col = req.get("label_column")
+        device = req.get("device", "cpu")
+
+        out_path = Path(out_dir)
+        out_path.mkdir(parents=True, exist_ok=True)
+        if not label_col:
+            raise ValueError("Original RelDDPM requires a label column.")
+
+        with open(train_csv, newline="") as f:
+            columns = list(next(csv.reader(f), []))
+        if label_col not in columns:
+            raise ValueError(f"Label column '{label_col}' is not present in the training CSV.")
+
+        label_values = (
+            pd.read_csv(train_csv, usecols=[label_col])[label_col].dropna().unique().tolist()
+        )
+        label_values.sort()
+        if len(label_values) != 2:
+            raise ValueError(
+                f"Original RelDDPM requires a binary label column; "
+                f"'{label_col}' has {len(label_values)} distinct values."
+            )
+
+        with open(out_path / "train_meta.json", "w") as f:
+            json.dump(
+                {
+                    "train_csv": train_csv,
+                    "label_col": label_col,
+                    "label_values": label_values,
+                },
+                f,
+            )
+
+        relddpm_dir = Path(__file__).resolve().parent.parent
+
+        cmd_base = [
+            "python", "main.py",
+            f"--train-csv={train_csv}",
+            f"--save-name={out_dir}",
+            f"--device={device}",
+        ]
+        if label_col:
+            cmd_base.append(f"--label-col={label_col}")
+
+        _run(cmd_base + ["--task-name=train_diffuser"], relddpm_dir, "train_diffuser")
+        _run(cmd_base + ["--task-name=train_controller"], relddpm_dir, "train_controller")
+
+        model_meta = {
+            "schema_version": "1.0",
+            "method": req["method"],
+            "dataset": req["dataset"],
+            "label_column": label_col,
+            "columns": columns,
+            "trained_at": datetime.datetime.utcnow().isoformat() + "Z",
+            "sdcontract_core_version": "1.0",
+            "train_csv": train_csv,
+            "device": device,
+            "label_values": label_values,
+        }
+        with open(out_path / "meta.json", "w") as f:
+            json.dump(model_meta, f, indent=2, default=str)
+
+        result = {"ok": True, "model_dir": out_dir, "message": ""}
+    except Exception as e:
+        result = {"ok": False, "model_dir": None, "message": f"{type(e).__name__}: {e}"}
+    finally:
+        sys.stdout = real_stdout
+    print(json.dumps(result))
+
+if __name__ == "__main__":
+    sys.exit(main() or 0)

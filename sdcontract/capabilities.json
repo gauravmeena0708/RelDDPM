@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "orig_relddpm": {
+    "kinds": ["row"],
+    "ops": ["eq"],
+    "aggs": [],
+    "column_types": ["categorical", "numerical"],
+    "supports_unconditional": false,
+    "supports_multi_constraint": false,
+    "max_constraints": 1,
+    "requires_gpu": false
+
+  }
+}

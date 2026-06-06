@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "plugin": "orig_relddpm",
+  "version": "1.0.0",
+  "env": "diffutabgen",
+  "entrypoints": {
+    "train": ["python", "sdcontract/train"],
+    "generate": ["python", "sdcontract/generate"]
+  },
+  "methods": {
+    "orig_relddpm": {
+      "variant": "original"
+    }
+  }
+}

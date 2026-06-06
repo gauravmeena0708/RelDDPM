@@ -17,7 +17,7 @@ def data_preprocessing(raw_data, label, save_dir=None):
     data_wrapper = du.DataWrapper()
     label_wrapper = du.DataWrapper()
     data_wrapper.fit(raw_data)
-    label_wrapper.fit(raw_data[[label]])
+    label_wrapper.fit(raw_data[[label]], all_category=True)
 
     if save_dir is not None:
         du.save_pickle(data=data_wrapper, path=os.path.join(save_dir, 'data_wrapper.pkl'))

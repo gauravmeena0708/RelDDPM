@@ -26,66 +26,125 @@ parser.add_argument('--controller-lr', type=float, default=0.001)
 parser.add_argument('--controller-steps', type=int, default=10000)
 parser.add_argument('--controller-bs', type=int, default=512)
 
-parser.add_argument('--device', type=int, default=1)
+parser.add_argument('--device', type=str, default='cuda:1')
 parser.add_argument('--scale-factor', type=float, default=8.0)
 parser.add_argument('--save-name', type=str, default='output')
+parser.add_argument('--train-csv', type=str, default=None)
+parser.add_argument('--test-csv', type=str, default=None)
+parser.add_argument('--label-col', type=str, default=None)
+parser.add_argument('--target-class', type=str, default=None)
+parser.add_argument('--n-samples', type=int, default=1000)
+parser.add_argument('--output-csv', type=str, default='oversample_data.csv')
 args = parser.parse_args()
 
 save_dir = os.path.join('expdir', args.save_name)
 os.makedirs(save_dir, exist_ok=True)
-device = torch.device(f'cuda:{args.device}')
 
-if args.task_name == 'oversampling':
-    config = du.load_json(f'datasets/minority_class_oversampling/dataset_info.json')[args.dataset_name]
-    train_data = pd.read_csv(f'datasets/minority_class_oversampling/{args.dataset_name}_train.csv')
-    test_data = pd.read_csv(f'datasets/minority_class_oversampling/{args.dataset_name}_test.csv')
-    
-    all_data = pd.concat((train_data, test_data))
-    data_wrapper, label_wrapper = lo.data_preprocessing(all_data, config['label'], save_dir)
 
-    ''' diffuser training '''
-    train_x = data_wrapper.transform(train_data)
-    lo.diffuser_training(train_x = train_x, 
-                        save_path = os.path.join(save_dir, 'diffuser.pt'), 
-                        device=device, 
-                        d_hidden=args.diffuser_dim, 
-                        num_timesteps=args.diffuser_timesteps, 
-                        epochs=args.diffuser_steps, 
-                        lr=args.diffuser_lr, 
-                        drop_out=0.0, 
-                        bs=args.diffuser_bs)
+def resolve_device(device_arg):
+    value = str(device_arg).strip().lower()
+    if value == 'cpu':
+        return torch.device('cpu')
+    if value == 'cuda':
+        value = 'cuda:0'
+    elif value.isdigit():
+        value = f'cuda:{value}'
+    if value.startswith('cuda:'):
+        if torch.cuda.is_available():
+            return torch.device(value)
+        warnings.warn(f"CUDA device '{value}' requested but unavailable; falling back to CPU.")
+        return torch.device('cpu')
+    raise ValueError(
+        f"Unsupported device {device_arg!r}; expected 'cpu', 'cuda', 'cuda:N', or a GPU index."
+    )
 
-    ''' controller training '''
-    diffuser = torch.load(os.path.join(save_dir, 'diffuser.pt'))
-    label = config['label']
-    n_classes = len(pd.unique(train_data[label]))
-    train_x = data_wrapper.transform(train_data)
-    train_y = label_wrapper.transform(train_data[[label]])
 
-    lo.controller_training(train_x=train_x,
-                        train_y=train_y, 
-                        diffuser=diffuser, 
-                        save_path=os.path.join(save_dir, 'controller.pt'), 
-                        device=device, 
-                        n_classes=n_classes, 
-                        lr=args.controller_lr, 
-                        d_hidden=args.controller_dim, 
-                        steps=args.controller_steps, 
-                        drop_out=0.0, 
-                        bs=args.controller_bs)
+device = resolve_device(args.device)
 
-    ''' oversampling '''
-    diffuser = torch.load(os.path.join(save_dir, 'diffuser.pt'))
-    controller = torch.load(os.path.join(save_dir, 'controller.pt'))
-    sample_data = []
-    for i in range(len(config['minority_classes'])):
-        samples = lo.oversampling(config['n_samples'][i], controller, diffuser, config['minority_classes'][i], device, n_classes, args.scale_factor)
-        sample_data.append(samples)
-    
-    sample_data = torch.cat(sample_data, dim=0)
-    sample_data = sample_data.cpu().numpy()
-    sample_data = data_wrapper.Reverse(sample_data)
-    sample_data.to_csv(os.path.join(save_dir, 'oversample_data.csv'), index=None)
+if args.task_name in ('oversampling', 'train_diffuser', 'train_controller', 'sample'):
+    if args.train_csv:
+        train_data = pd.read_csv(args.train_csv)
+        if args.test_csv:
+            test_data = pd.read_csv(args.test_csv)
+        else:
+            test_data = pd.DataFrame(columns=train_data.columns)
+        all_data = pd.concat((train_data, test_data))
+        label = args.label_col
+    else:
+        config = du.load_json(f'datasets/minority_class_oversampling/dataset_info.json')[args.dataset_name]
+        train_data = pd.read_csv(f'datasets/minority_class_oversampling/{args.dataset_name}_train.csv')
+        test_data = pd.read_csv(f'datasets/minority_class_oversampling/{args.dataset_name}_test.csv')
+        all_data = pd.concat((train_data, test_data))
+        label = config['label']
+
+    if args.task_name in ('train_diffuser', 'oversampling'):
+        data_wrapper, label_wrapper = lo.data_preprocessing(all_data, label, save_dir)
+    else:
+        data_wrapper = du.load_pickle(os.path.join(save_dir, 'data_wrapper.pkl'))
+        label_wrapper = du.load_pickle(os.path.join(save_dir, 'label_wrapper.pkl'))
+
+    if args.task_name in ('train_diffuser', 'oversampling'):
+        ''' diffuser training '''
+        train_x = data_wrapper.transform(train_data)
+        lo.diffuser_training(train_x = train_x,
+                            save_path = os.path.join(save_dir, 'diffuser.pt'),
+                            device=device,
+                            d_hidden=args.diffuser_dim,
+                            num_timesteps=args.diffuser_timesteps,
+                            epochs=args.diffuser_steps,
+                            lr=args.diffuser_lr,
+                            drop_out=0.0,
+                            bs=args.diffuser_bs)
+
+    if args.task_name in ('train_controller', 'oversampling'):
+        ''' controller training '''
+        diffuser = torch.load(os.path.join(save_dir, 'diffuser.pt'), weights_only=False)
+        n_classes = len(pd.unique(train_data[label]))
+        train_x = data_wrapper.transform(train_data)
+        train_y = label_wrapper.transform(train_data[[label]])
+
+        lo.controller_training(train_x=train_x,
+                            train_y=train_y,
+                            diffuser=diffuser,
+                            save_path=os.path.join(save_dir, 'controller.pt'),
+                            device=device,
+                            n_classes=n_classes,
+                            lr=args.controller_lr,
+                            d_hidden=args.controller_dim,
+                            steps=args.controller_steps,
+                            drop_out=0.0,
+                            bs=args.controller_bs)
+
+    if args.task_name in ('sample', 'oversampling'):
+        ''' oversampling '''
+        diffuser = torch.load(os.path.join(save_dir, 'diffuser.pt'), weights_only=False)
+        controller = torch.load(os.path.join(save_dir, 'controller.pt'), weights_only=False)
+
+        if args.target_class is not None:
+            targets = [
+                lo.resolve_binary_target_index(
+                    label_wrapper,
+                    label,
+                    args.target_class,
+                )
+            ]
+            n_classes = len(label_wrapper.all_distinct_values[label])
+        else:
+            targets = config['minority_classes']
+            n_classes = len(pd.unique(train_data[label]))
+
+        sample_data = []
+        for i, t in enumerate(targets):
+            n_samples = args.n_samples if args.target_class is not None else config['n_samples'][i]
+            samples = lo.oversampling(n_samples, controller, diffuser, t, device, n_classes, args.scale_factor)
+            sample_data.append(samples)
+
+        sample_data = torch.cat(sample_data, dim=0)
+        sample_data = sample_data.cpu().numpy()
+        sample_data = data_wrapper.Reverse(sample_data)
+
+        output_csv_path = args.output_csv if args.output_csv != 'oversample_data.csv' else os.path.join(save_dir, 'oversample_data.csv')
+        sample_data.to_csv(output_csv_path, index=None)
 
 
 elif args.task_name == 'completion':
@@ -314,6 +373,3 @@ elif args.task_name == 'completion':
         sample_data = sample_data[md_complete_data.columns]
         md_complete_data = pd.concat((md_complete_data, sample_data), axis=0)
         md_complete_data.to_csv(os.path.join(save_dir, 'movie_director_complete_data.csv'), index=None)
-
-
-
