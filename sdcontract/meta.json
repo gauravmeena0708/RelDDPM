@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "plugin": "orig_relddpm",
+  "plugin": "RelDDPM",
   "version": "1.0.0",
   "env": "diffutabgen",
   "entrypoints": {
@@ -8,7 +8,7 @@
     "generate": ["python", "sdcontract/generate"]
   },
   "methods": {
-    "orig_relddpm": {
+    "RelDDPM": {
       "variant": "original"
     }
   }

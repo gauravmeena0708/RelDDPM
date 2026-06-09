@@ -1,14 +1,15 @@
 {
   "schema_version": "1.0",
-  "orig_relddpm": {
+  "RelDDPM": {
     "kinds": ["row"],
     "ops": ["eq"],
     "aggs": [],
     "column_types": ["categorical", "numerical"],
-    "supports_unconditional": false,
+    "supports_unconditional": true,
     "supports_multi_constraint": false,
     "max_constraints": 1,
-    "requires_gpu": false
+    "requires_gpu": false,
+    "label_only": true
 
   }
 }

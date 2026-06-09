@@ -40,36 +40,50 @@ def main():
         sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
         from sdcontract_core.constraints import parse, to_spec
 
-        if len(raw_constraints) != 1:
-            raise ValueError("Original RelDDPM requires exactly one equality constraint.")
-        if not label_col:
-            raise ValueError("The trained artifact does not define a label column.")
-
-        constraint = parse(raw_constraints[0])
-        to_spec(constraint, "equality")
-        if constraint.column != label_col:
-            raise ValueError(
-                f"Constraint column '{constraint.column}' does not match trained "
-                f"label column '{label_col}'."
-            )
-        target_class = constraint.value
-
         relddpm_dir = Path(__file__).resolve().parent.parent
 
-        cmd = [
-            "python", "main.py",
-            "--task-name=sample",
-            f"--train-csv={train_csv}",
-            f"--save-name={model_dir}",
-            f"--n-samples={n_samples}",
-            f"--output-csv={out_csv}",
-            f"--device={device}",
-        ]
-        if label_col:
-            cmd.append(f"--label-col={label_col}")
-        cmd.append(f"--target-class={target_class}")
+        if len(raw_constraints) == 0:
+            cmd = [
+                "python", "main.py",
+                "--task-name=sample_unconditional",
+                f"--train-csv={train_csv}",
+                f"--save-name={model_dir}",
+                f"--n-samples={n_samples}",
+                f"--output-csv={out_csv}",
+                f"--device={device}",
+            ]
+            if label_col:
+                cmd.append(f"--label-col={label_col}")
+            _run(cmd, relddpm_dir, "sample_unconditional")
+        else:
+            if len(raw_constraints) != 1:
+                raise ValueError("Original RelDDPM requires exactly one equality constraint or zero constraints (unconditional).")
+            if not label_col:
+                raise ValueError("The trained artifact does not define a label column.")
 
-        _run(cmd, relddpm_dir, "sample")
+            constraint = parse(raw_constraints[0])
+            to_spec(constraint, "equality")
+            if constraint.column != label_col:
+                raise ValueError(
+                    f"Constraint column '{constraint.column}' does not match trained "
+                    f"label column '{label_col}'."
+                )
+            target_class = constraint.value
+
+            cmd = [
+                "python", "main.py",
+                "--task-name=sample",
+                f"--train-csv={train_csv}",
+                f"--save-name={model_dir}",
+                f"--n-samples={n_samples}",
+                f"--output-csv={out_csv}",
+                f"--device={device}",
+            ]
+            if label_col:
+                cmd.append(f"--label-col={label_col}")
+            cmd.append(f"--target-class={target_class}")
+
+            _run(cmd, relddpm_dir, "sample")
 
         result = {"ok": True, "output_csv": out_csv, "message": ""}
     except Exception as e:

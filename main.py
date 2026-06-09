@@ -61,7 +61,7 @@ def resolve_device(device_arg):
 
 device = resolve_device(args.device)
 
-if args.task_name in ('oversampling', 'train_diffuser', 'train_controller', 'sample'):
+if args.task_name in ('oversampling', 'train_diffuser', 'train_controller', 'sample', 'sample_unconditional'):
     if args.train_csv:
         train_data = pd.read_csv(args.train_csv)
         if args.test_csv:
@@ -140,6 +140,20 @@ if args.task_name in ('oversampling', 'train_diffuser', 'train_controller', 'sam
             sample_data.append(samples)
 
         sample_data = torch.cat(sample_data, dim=0)
+        sample_data = sample_data.cpu().numpy()
+        sample_data = data_wrapper.Reverse(sample_data)
+
+        output_csv_path = args.output_csv if args.output_csv != 'oversample_data.csv' else os.path.join(save_dir, 'oversample_data.csv')
+        sample_data.to_csv(output_csv_path, index=None)
+
+    elif args.task_name == 'sample_unconditional':
+        ''' unconditional sampling '''
+        diffuser = torch.load(os.path.join(save_dir, 'diffuser.pt'), weights_only=False)
+        diffuser.to(device)
+        diffuser.variables_to_device(device)
+        
+        sample_data = diffuser.sample(args.n_samples, control_tools=None)
+        
         sample_data = sample_data.cpu().numpy()
         sample_data = data_wrapper.Reverse(sample_data)
 
